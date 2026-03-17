@@ -1,23 +1,21 @@
 import google.generativeai as genai
-from config import GEMINI_API_KEY
+from config import GEMINI_API_KEY, MODEL_NAME
 
 genai.configure(api_key=GEMINI_API_KEY)
 
+model = genai.GenerativeModel(MODEL_NAME)
+
 def get_ai_response(messages):
     try:
-        model = genai.GenerativeModel("models/gemini-1.5-flash")
+        chat = model.start_chat(history=[])
 
-        # Build prompt properly
-        prompt = ""
-        for m in messages[-6:]:
-            if m["role"] == "user":
-                prompt += f"User: {m['content']}\n"
-            elif m["role"] == "assistant":
-                prompt += f"Assistant: {m['content']}\n"
+        context = ""
+        for m in messages:
+            if m["role"] != "system":
+                context += f"{m['role']}: {m['content']}\n"
 
-        response = model.generate_content(prompt)
-
+        response = chat.send_message(context)
         return response.text.strip()
 
     except Exception as e:
-        return f"⚠️ Error: {str(e)}"
+        return "⚠️ Sorry, I’m facing some technical issues. Please try again later."
