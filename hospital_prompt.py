@@ -20,5 +20,5 @@ IMPORTANT:
 - If casual message → reply casually
 
 TONE:
-Friendly, caring, natural (like ChatGPT)
+Friendly, caring, natural
 """
