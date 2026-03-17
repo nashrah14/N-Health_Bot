@@ -1,83 +1,88 @@
-import streamlit as st
-import uuid
-from brain import get_ai_response
-from hospital_flow import init_patient, get_next_field, QUESTIONS
-from doctor_recommender import recommend_department
-from storage import init_appointments, save_appointment
-from chat_storage import init_chat, save_chat
-from hospital_prompt import HOSPITAL_SYSTEM_PROMPT
+p = st.session_state.patient
+lower = prompt.lower()
 
-# Init
-init_appointments()
-init_chat()
+# --------- DETECT INTENT ----------
+booking_words = ["book", "appointment", "consult", "doctor"]
+symptom_words = ["pain","fever","cough","headache","vomit","cold","dizzy","weak"]
 
-st.set_page_config(page_title="N-HealthBot Pro", page_icon="🏥")
+is_booking_intent = any(w in lower for w in booking_words)
+has_symptoms = any(w in lower for w in symptom_words)
 
-# UI Style
-st.markdown("""
-<style>
-.stChatMessage { padding: 8px }
-</style>
-""", unsafe_allow_html=True)
+# --------- FLOW CONTROL ----------
 
-st.title("🏥 N-HealthBot Pro")
+# 1. If user is chatting normally → use AI
+if p["mode"] == "chat":
 
-# Session
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role":"system","content":HOSPITAL_SYSTEM_PROMPT},
-        {"role":"assistant","content":"Hello 👋 How can I help you?"}
-    ]
-
-if "patient" not in st.session_state:
-    st.session_state.patient = init_patient()
-
-# Display
-for m in st.session_state.messages:
-    if m["role"] != "system":
-        with st.chat_message(m["role"]):
-            st.write(m["content"])
-
-# Input
-prompt = st.chat_input("Describe your issue...")
-
-if prompt:
-    st.session_state.messages.append({"role":"user","content":prompt})
-    save_chat("user", prompt)
-
-    with st.chat_message("user"):
-        st.write(prompt)
-
-    p = st.session_state.patient
-
-    # Logic
-    if p["mode"] == "chat":
+    if has_symptoms:
         dept = recommend_department(prompt)
         p["problem"] = prompt
         p["department"] = dept
+        p["mode"] = "suggested"
+
+        ai_reply = get_ai_response(st.session_state.messages)
+
+        bot_reply = f"{ai_reply}\n\n💡 Based on this, consulting **{dept}** would help. Would you like me to book an appointment?"
+
+    elif is_booking_intent:
         p["mode"] = "booking"
+        bot_reply = "Sure 🙂 Let's get you booked. May I know your name?"
 
-        reply = f"I recommend **{dept}**. Shall I book an appointment?"
+    else:
+        bot_reply = get_ai_response(st.session_state.messages)
 
-    elif p["mode"] == "booking":
-        field = get_next_field(p)
 
-        if field:
-            p[field] = prompt
-            next_f = get_next_field(p)
+# 2. If suggestion given → wait for user decision
+elif p["mode"] == "suggested":
 
-            reply = QUESTIONS[next_f] if next_f else "Processing your appointment..."
+    if "yes" in lower or "book" in lower:
+        p["mode"] = "booking"
+        bot_reply = "Great 🙂 Let's start. What's your name?"
+
+    elif "no" in lower or "later" in lower:
+        p["mode"] = "chat"
+        bot_reply = "No worries 😊 I'm here if you need anything."
+
+    else:
+        bot_reply = get_ai_response(st.session_state.messages)
+
+
+# 3. Booking flow (more conversational)
+elif p["mode"] == "booking":
+
+    field = get_next_field(p)
+
+    if field:
+        p[field] = prompt
+        next_field = get_next_field(p)
+
+        if next_field:
+            # conversational questions
+            questions_map = {
+                "age": "Got it 👍 And your age?",
+                "phone": "Thanks! Could you share your phone number?",
+                "date": "When would you prefer the appointment?"
+            }
+
+            bot_reply = questions_map.get(next_field, QUESTIONS[next_field])
+
         else:
             save_appointment(p)
             p["mode"] = "chat"
-            reply = "✅ Appointment booked successfully!"
+
+            bot_reply = f"""
+✅ Appointment booked successfully!
+
+👤 {p['name']}  
+📅 {p['date']}  
+🏥 {p['department']}
+
+Our team will contact you shortly 😊
+"""
 
     else:
-        reply = get_ai_response(st.session_state.messages)
+        bot_reply = get_ai_response(st.session_state.messages)
 
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            st.write(reply)
 
-    st.session_state.messages.append({"role":"assistant","content":reply})
-    save_chat("assistant", reply)
+# fallback
+else:
+    bot_reply = get_ai_response(st.session_state.messages)
